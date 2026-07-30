@@ -1,0 +1,9 @@
+<odoo>
+    <record id="group_ddk_user" model="res.groups">
+        <field name="name">DDK User</field>
+    </record>
+
+    <record id="group_ddk_manager" model="res.groups">
+        <field name="name">DDK Manager</field>
+    </record>
+</odoo>
