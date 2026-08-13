@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="report_purchasequotation_document_ddk"
+              inherit_id="purchase.report_purchasequotation_document"
+              priority="1000">
+
+        <xpath expr="//p[@t-field='o.note']"
+               position="after">
+
+            <div style="
+                margin-top: 12px;
+                padding: 8px;
+                border-left: 3px solid #714B67;
+                background-color: #f8f5f9;
+            ">
+                Thank you for giving us the opportunity to quote!
+                We look forward to working with you. purchase_quotation_report.xml
+            </div>
+
+        </xpath>
+
+    </template>
+
+</odoo>
