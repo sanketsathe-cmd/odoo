@@ -13,7 +13,7 @@
         </field>
     </record>
 
-    <!-- Form view -->
+    <!-- Form view  test-->
     <record id="view_stock_move_line_form_custom" model="ir.ui.view">
         <field name="name">stock.move.line.form.custom</field>
         <field name="model">stock.move.line</field>
