@@ -6,7 +6,7 @@
     'description': 'This is description...',
     'author': 'Divya Kelaskar',
     'application': True,
-    'depends': ['base', 'stock'],
+    'depends': ['base', 'stock', 'stock_account'],
     'data': [
         'security/security.xml',
         'security/ir.model.access.csv',
