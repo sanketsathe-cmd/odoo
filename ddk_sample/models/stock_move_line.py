@@ -370,6 +370,374 @@ class StockMove(models.Model):
                 if not line.strip():
                     continue
 
+                # Split by whitespace (handles tabs and spaces)
+                parts = re.split(r'\s+', line.strip())
+                _logger.info(f"Raw parts: {parts}")
+
+                if len(parts) < 2:
+                    raise UserError(f'Invalid line format: "{line}". Expected: lot_number quantity [expiration_date]')
+
+                # Try to identify which part is the lot name, quantity, and date
+                # First part is always the lot name
+                lot_name = parts[0].strip()
+                
+                # Try to find quantity and expiration date from remaining parts
+                quantity = None
+                expiration_date = None
+                
+                # Check each remaining part to identify quantity (float) and date
+                for part in parts[1:]:
+                    try:
+                        # Try to convert to float - if successful and quantity is None, it's the quantity
+                        float_val = float(part)
+                        if quantity is None:
+                            quantity = float_val
+                        else:
+                            # If we already have a quantity, this might be something else (ignore)
+                            _logger.warning(f"Multiple numeric values found, using first: {quantity}, ignoring: {part}")
+                    except ValueError:
+                        # If it's not a number, it might be a date
+                        try:
+                            # Try to parse as date
+                            datetime.strptime(part, '%Y-%m-%d')
+                            expiration_date = part
+                        except ValueError:
+                            # Try other common date formats
+                            try:
+                                datetime.strptime(part, '%Y-%m-%d %H:%M')
+                                expiration_date = part
+                            except ValueError:
+                                _logger.warning(f"Unrecognized value: {part}")
+
+                # If quantity is still None, use default
+                if quantity is None:
+                    quantity = 1.0
+                    _logger.info(f"No quantity found, using default: {quantity}")
+
+                _logger.info(f"Processing lot: {lot_name}, quantity: {quantity}, expiration_date: {expiration_date}")
+
+                if quantity <= 0:
+                    raise UserError(f'Quantity must be greater than 0 for lot {lot_name}.')
+
+                # CRITICAL: First try to find lot with the correct product
+                lot = lot_obj.search([
+                    ('name', '=', lot_name),
+                    ('product_id', '=', move.product_id.id)
+                ], limit=1)
+
+                # If not found, check if it exists for a different product
+                if not lot:
+                    existing_lot = lot_obj.search([('name', '=', lot_name)], limit=1)
+
+                    if existing_lot:
+                        # Lot exists for a different product - create new one with unique name
+                        product_code = move.product_id.default_code or move.product_id.name[:10]
+                        new_lot_name = f"{lot_name}-{product_code}"
+                        
+                        # Check if this new lot already exists
+                        lot = lot_obj.search([
+                            ('name', '=', new_lot_name),
+                            ('product_id', '=', move.product_id.id)
+                        ], limit=1)
+
+                        if not lot:
+                            _logger.warning(
+                                f"Lot {lot_name} exists for product {existing_lot.product_id.name}. "
+                                f"Creating {new_lot_name} for {move.product_id.name}"
+                            )
+
+                            # Copy all date fields from existing lot
+                            lot_vals = {
+                                'name': new_lot_name,
+                                'product_id': move.product_id.id,
+                                'company_id': move.company_id.id,
+                                'expiration_date': existing_lot.expiration_date or False,
+                                'alert_date': existing_lot.alert_date or False,
+                                'use_date': existing_lot.use_date or False,
+                                'removal_date': existing_lot.removal_date or False,
+                            }
+                            lot = lot_obj.create(lot_vals)
+
+                            # Copy MFG date if exists
+                            if hasattr(existing_lot, 'x_studio_mfg_date_lot') and existing_lot.x_studio_mfg_date_lot:
+                                lot.write({'x_studio_mfg_date_lot': existing_lot.x_studio_mfg_date_lot})
+                                _logger.info(f"Copied MFG date: {existing_lot.x_studio_mfg_date_lot}")
+
+                            _logger.info(f"Created new lot {new_lot_name} (ID: {lot.id}) for {move.product_id.name}")
+                        else:
+                            _logger.info(f"Using existing lot {new_lot_name} (ID: {lot.id})")
+                    else:
+                        # Lot doesn't exist at all - create brand new
+                        lot_vals = {
+                            'name': lot_name,
+                            'product_id': move.product_id.id,
+                            'company_id': move.company_id.id,
+                            'expiration_date': False,
+                            'alert_date': False,
+                            'use_date': False,
+                            'removal_date': False,
+                        }
+                        
+                        # If expiration date was provided, use it
+                        if expiration_date:
+                            try:
+                                exp_datetime = datetime.strptime(expiration_date, '%Y-%m-%d')
+                                lot_vals['expiration_date'] = exp_datetime
+                                lot_vals['alert_date'] = exp_datetime
+                                lot_vals['use_date'] = exp_datetime
+                                lot_vals['removal_date'] = exp_datetime
+                                _logger.info(f"Setting expiration_date from input: {exp_datetime}")
+                            except ValueError:
+                                try:
+                                    exp_datetime = datetime.strptime(expiration_date, '%Y-%m-%d %H:%M')
+                                    lot_vals['expiration_date'] = exp_datetime
+                                    lot_vals['alert_date'] = exp_datetime
+                                    lot_vals['use_date'] = exp_datetime
+                                    lot_vals['removal_date'] = exp_datetime
+                                    _logger.info(f"Setting expiration_date from input: {exp_datetime}")
+                                except ValueError:
+                                    _logger.warning(f"Could not parse expiration date: {expiration_date}")
+                        
+                        lot = lot_obj.create(lot_vals)
+                        _logger.info(f"Created new lot {lot_name} (ID: {lot.id}) for {move.product_id.name}")
+                else:
+                    _logger.info(f"Found existing lot {lot_name} (ID: {lot.id}) for {move.product_id.name}")
+                    
+                    # If expiration date was provided and lot has no expiration, update it
+                    if expiration_date and not lot.expiration_date:
+                        try:
+                            exp_datetime = datetime.strptime(expiration_date, '%Y-%m-%d')
+                            lot.write({
+                                'expiration_date': exp_datetime,
+                                'alert_date': exp_datetime,
+                                'use_date': exp_datetime,
+                                'removal_date': exp_datetime
+                            })
+                            _logger.info(f"Updated lot {lot_name} with expiration_date: {exp_datetime}")
+                        except ValueError:
+                            try:
+                                exp_datetime = datetime.strptime(expiration_date, '%Y-%m-%d %H:%M')
+                                lot.write({
+                                    'expiration_date': exp_datetime,
+                                    'alert_date': exp_datetime,
+                                    'use_date': exp_datetime,
+                                    'removal_date': exp_datetime
+                                })
+                                _logger.info(f"Updated lot {lot_name} with expiration_date: {exp_datetime}")
+                            except ValueError:
+                                _logger.warning(f"Could not parse expiration date: {expiration_date}")
+
+                # Now create move line values
+                vals = {
+                    'lot_id': lot.id,
+                    'quantity': quantity,
+                    'product_uom_id': move.product_uom.id,
+                    'location_id': move.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
+                    'company_id': move.company_id.id,
+                    'product_id': move.product_id.id,  # Explicitly set product_id
+                }
+
+                if lot.expiration_date:
+                    vals['expiration_date'] = lot.expiration_date
+                    _logger.info(f"Setting expiration_date from lot: {lot.expiration_date}")
+                else:
+                    vals['expiration_date'] = False
+                    _logger.info(f"No expiration date for lot {lot_name} - keeping empty")
+
+                if hasattr(lot, 'x_studio_mfg_date_lot') and lot.x_studio_mfg_date_lot:
+                    vals['x_studio_mfg_date_receipt'] = lot.x_studio_mfg_date_lot
+                    _logger.info(f"Setting MFG date from lot: {lot.x_studio_mfg_date_lot}")
+
+                move_line_vals.append(vals)
+                _logger.info(f"Added move line vals: {vals}")
+
+        else:  # mode == 'generate'
+            _logger.info("Generate mode: generating serial/lot numbers")
+            start_serial = first_lot or 'LOT001'
+            count = int(count) if count else 1
+
+            _logger.info(f"Start serial: {start_serial}, Count: {count}")
+
+            for i in range(count):
+                if i == 0:
+                    serial_number = start_serial
+                else:
+                    try:
+                        serial_number = str(int(start_serial) + i)
+                    except:
+                        serial_number = f"{start_serial}_{i+1}"
+
+                _logger.info(f"Generating serial #{i+1}: {serial_number}")
+
+                lot = lot_obj.search([
+                    ('name', '=', serial_number),
+                    ('product_id', '=', move.product_id.id)
+                ], limit=1)
+
+                if not lot:
+                    # Check if exists for another product
+                    existing_lot = lot_obj.search([('name', '=', serial_number)], limit=1)
+                    if existing_lot:
+                        product_code = move.product_id.default_code or move.product_id.name[:10]
+                        new_lot_name = f"{serial_number}-{product_code}"
+                        
+                        lot = lot_obj.search([
+                            ('name', '=', new_lot_name),
+                            ('product_id', '=', move.product_id.id)
+                        ], limit=1)
+                        
+                        if not lot:
+                            lot_vals = {
+                                'name': new_lot_name,
+                                'product_id': move.product_id.id,
+                                'company_id': move.company_id.id,
+                                'expiration_date': existing_lot.expiration_date or False,
+                                'alert_date': existing_lot.alert_date or False,
+                                'use_date': existing_lot.use_date or False,
+                                'removal_date': existing_lot.removal_date or False,
+                            }
+                            lot = lot_obj.create(lot_vals)
+                            if hasattr(existing_lot, 'x_studio_mfg_date_lot') and existing_lot.x_studio_mfg_date_lot:
+                                lot.write({'x_studio_mfg_date_lot': existing_lot.x_studio_mfg_date_lot})
+                            _logger.info(f"Created new lot {new_lot_name} for {move.product_id.name}")
+                    else:
+                        lot_vals = {
+                            'name': serial_number,
+                            'product_id': move.product_id.id,
+                            'company_id': move.company_id.id,
+                            'expiration_date': False,
+                            'alert_date': False,
+                            'use_date': False,
+                            'removal_date': False,
+                        }
+                        lot = lot_obj.create(lot_vals)
+                        _logger.info(f"Created new lot {serial_number} for {move.product_id.name}")
+
+                vals = {
+                    'lot_id': lot.id,
+                    'quantity': 1.0,
+                    'product_uom_id': move.product_uom.id,
+                    'location_id': move.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
+                    'company_id': move.company_id.id,
+                    'product_id': move.product_id.id,  # Explicitly set product_id
+                }
+
+                if lot.expiration_date:
+                    vals['expiration_date'] = lot.expiration_date
+                else:
+                    vals['expiration_date'] = False
+
+                move_line_vals.append(vals)
+
+        # Format values for the web client
+        formatted_vals = []
+        for values in move_line_vals:
+            formatted = {}
+            for key, value in values.items():
+                field = self.env['stock.move.line']._fields.get(key)
+                if field and isinstance(field, fields.Many2one):
+                    if value:
+                        record = self.env[field.comodel_name].browse(value)
+                        formatted[key] = (value, record.display_name)
+                    else:
+                        formatted[key] = False
+                else:
+                    formatted[key] = value
+            formatted_vals.append(formatted)
+
+        _logger.info(f"Returning {len(formatted_vals)} move line values")
+        
+        """
+        OVERRIDE: Generate lot line values with proper expiration dates from lots.
+        """
+        _logger.info("=== OVERRIDING action_generate_lot_line_vals ===")
+        _logger.info(f"args: {args}")
+        _logger.info(f"kwargs: {kwargs}")
+
+        context_data = kwargs.get('context_data')
+        mode = kwargs.get('mode')
+        first_lot = kwargs.get('first_lot')
+        count = kwargs.get('count')
+        lot_text = kwargs.get('lot_text')
+
+        if len(args) >= 1:
+            context_data = args[0] if context_data is None else context_data
+        if len(args) >= 2:
+            mode = args[1] if mode is None else mode
+        if len(args) >= 3:
+            first_lot = args[2] if first_lot is None else first_lot
+        if len(args) >= 4:
+            count = args[3] if count is None else count
+        if len(args) >= 5:
+            lot_text = args[4] if lot_text is None else lot_text
+
+        if context_data is None:
+            context_data = {}
+        if mode is None:
+            mode = 'import'
+        if first_lot is None:
+            first_lot = ''
+        if count is None:
+            count = 0
+        if lot_text is None:
+            lot_text = ''
+
+        _logger.info(f"Extracted parameters:")
+        _logger.info(f"  context_data: {context_data}")
+        _logger.info(f"  mode: {mode}")
+        _logger.info(f"  first_lot: {first_lot}")
+        _logger.info(f"  count: {count}")
+        _logger.info(f"  lot_text: {lot_text}")
+
+        move = self
+
+        if context_data and isinstance(context_data, dict):
+            if context_data.get('active_id'):
+                move = self.browse(context_data.get('active_id'))
+                _logger.info(f"Found move with active_id: {move.id}")
+            elif context_data.get('default_product_id'):
+                _logger.info("Creating new move from context")
+                move = self.new({
+                    'product_id': context_data.get('default_product_id'),
+                    'location_id': context_data.get('default_location_id'),
+                    'location_dest_id': context_data.get('default_location_dest_id'),
+                    'company_id': self.env.company.id,
+                    'product_uom': context_data.get('default_uom_id'),
+                    'scheduled_date': context_data.get('default_scheduled_date'),
+                })
+                _logger.info(f"Created new move: {move}")
+
+        if not move or not move.id:
+            if self and self.ids:
+                move = self.browse(self.ids[0])
+                _logger.info(f"Using first move in recordset: {move.id}")
+
+        if not move:
+            raise UserError('Stock move not found')
+
+        _logger.info(f"Move ID: {move.id if move.id else 'New'}")
+        _logger.info(f"Move scheduled_date: {move.scheduled_date if hasattr(move, 'scheduled_date') else None}")
+        _logger.info(f"Product: {move.product_id.name if move.product_id else 'Unknown'}")
+        _logger.info(f"Product ID: {move.product_id.id if move.product_id else 'Unknown'}")
+
+        move_line_vals = []
+        lot_obj = self.env['stock.lot']
+
+        if mode == 'import':
+            _logger.info("Import mode: processing lot text")
+
+            if not lot_text or not lot_text.strip():
+                raise UserError('Please enter lot numbers and quantities.')
+
+            lines = lot_text.strip().split('\n')
+            _logger.info(f"Parsing {len(lines)} lines")
+
+            for line in lines:
+                if not line.strip():
+                    continue
+
                 parts = re.split(r'\s+', line.strip(), 1)
                 lot_name = parts[0].strip()
                 quantity = float(parts[1]) if len(parts) > 1 else 1.0
