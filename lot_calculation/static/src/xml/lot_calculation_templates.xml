@@ -12,13 +12,14 @@
                     </div>
                 </div>
 
+                <!-- Lot No. and Qty/Lot -->
                 <div class="row mb-3">
                     <div class="col-md-6">
                         <div class="form-group">
                             <label class="form-label">Lot No.</label>
                             <input type="text" class="form-control" 
                                    t-model="state.lotNumber"
-                                   placeholder="e.g., LOT-A"/>
+                                   placeholder="e.g., LOT001"/>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -32,6 +33,39 @@
                     </div>
                 </div>
 
+                <!-- Expiry Date & Time + Manufacturing Date -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label">Expiry Date &amp; Time</label>
+                            <input type="datetime-local" class="form-control" 
+                                   t-model="state.expiryDateTime"
+                                   step="60"/>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label">Manufacturing Date</label>
+                            <input type="date" class="form-control" 
+                                   t-model="state.manufacturingDate"/>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Destination Package Name -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label">Destination Package Name</label>
+                            <input type="text" class="form-control" 
+                                   t-model="state.packageName"
+                                   placeholder="e.g., PACK001"/>
+                        </div>
+                    </div>
+                    <div class="col-md-6"></div>
+                </div>
+
+                <!-- Calculate Button -->
                 <div class="row">
                     <div class="col-12">
                         <button class="btn btn-primary w-100" t-on-click="_onCalculate">
@@ -45,8 +79,7 @@
 
     <div t-name="stock.CalculateLot">
         <button class="btn btn-link btn-group" t-on-click="openDialog">
-            <i class="fa fa-calculator me-1"/>
-            Calculate Lots
+            Calculation of Lot/Package
         </button>
     </div>
 </templates>

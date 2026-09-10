@@ -18,12 +18,44 @@ export class CalculateLotDialog extends Component {
         this.state = useState({
             lotNumber: '',
             qtyPerLot: 1,
+            expiryDateTime: '',
+            manufacturingDate: '',
+            packageName: '',
         });
+    }
+
+    // Convert datetime-local value to DD-MM-YYYY HH:MM with -5h30m offset
+    _formatExpiryDate(datetimeStr) {
+        if (!datetimeStr) return '';
+
+        const [datePart, timePart] = datetimeStr.split('T');
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hours, minutes] = timePart.split(':').map(Number);
+
+        const dt = new Date(year, month - 1, day, hours, minutes, 0, 0);
+        dt.setHours(dt.getHours() - 5);
+        dt.setMinutes(dt.getMinutes() - 30);
+
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const yyyy = dt.getFullYear();
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mi = String(dt.getMinutes()).padStart(2, '0');
+
+        return `${dd}-${mm}-${yyyy} ${hh}:${mi}`;
+    }
+
+    _formatManufacturingDate(dateStr) {
+        if (!dateStr) return '';
+        return dateStr;
     }
 
     async _onCalculate() {
         const lotNumber = this.state.lotNumber.trim();
         const qtyPerLot = parseInt(this.state.qtyPerLot) || 1;
+        const expiryDateTime = this.state.expiryDateTime;
+        const manufacturingDate = this.state.manufacturingDate;
+        const packageName = this.state.packageName.trim();
 
         if (!lotNumber) {
             alert(_t("Please enter a Lot Number"));
@@ -35,29 +67,43 @@ export class CalculateLotDialog extends Component {
             return;
         }
 
-        // Generate text - SAME lot number repeated
+        if (!expiryDateTime) {
+            alert(_t("Please enter an Expiry Date & Time"));
+            return;
+        }
+
+        if (!manufacturingDate) {
+            alert(_t("Please enter a Manufacturing Date"));
+            return;
+        }
+
+        if (!packageName) {
+            alert(_t("Please enter a Destination Package Name"));
+            return;
+        }
+
+        const formattedExpiry = this._formatExpiryDate(expiryDateTime);
+        const formattedMfg = this._formatManufacturingDate(manufacturingDate);
+
+        // Generate text - SAME lot number repeated with dates & package
         let result = [];
         const totalQty = this.props.move.data.product_uom_qty || 0;
-        
-        // Calculate how many lines needed
         const totalLines = Math.ceil(totalQty / qtyPerLot);
 
         for (let i = 0; i < totalLines; i++) {
-            // Use the SAME lot number for all lines
             const qty = i === totalLines - 1 ? 
                 totalQty - (i * qtyPerLot) : 
                 qtyPerLot;
-            result.push(`${lotNumber}\t${qty}`);
+            // Format: LOT_NUMBER \t QTY \t EXPIRY \t MFG_DATE \t PACKAGE
+            result.push(`${lotNumber}\t${qty}\t${formattedExpiry}\t${formattedMfg}\t${packageName}`);
         }
 
         const generatedText = result.join('\n');
 
-        // Copy to clipboard
         try {
             await navigator.clipboard.writeText(generatedText);
             this.props.close();
         } catch (err) {
-            // Fallback
             const textArea = document.createElement('textarea');
             textArea.value = generatedText;
             document.body.appendChild(textArea);
