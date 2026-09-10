@@ -68,8 +68,16 @@
                 <!-- Calculate Button -->
                 <div class="row">
                     <div class="col-12">
-                        <button class="btn btn-primary w-100" t-on-click="_onCalculate">
-                            <i class="fa fa-calculator me-2"/> Calculate &amp; Copy to Clipboard
+                        <button class="btn w-100"
+                                t-att-class="state.copied ? 'btn-success' : 'btn-primary'"
+                                t-on-click="_onCalculate"
+                                t-att-disabled="state.copied">
+                            <t t-if="state.copied">
+                                <i class="fa fa-check me-2"/> Copied!
+                            </t>
+                            <t t-else="">
+                                <i class="fa fa-calculator me-2"/> Calculate &amp; Copy to Clipboard
+                            </t>
                         </button>
                     </div>
                 </div>

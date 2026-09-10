@@ -21,6 +21,7 @@ export class CalculateLotDialog extends Component {
             expiryDateTime: '',
             manufacturingDate: '',
             packageName: '',
+            copied: false,
         });
     }
 
@@ -100,18 +101,26 @@ export class CalculateLotDialog extends Component {
 
         const generatedText = result.join('\n');
 
+        // Copy to clipboard
         try {
             await navigator.clipboard.writeText(generatedText);
-            this.props.close();
         } catch (err) {
+            // Fallback
             const textArea = document.createElement('textarea');
             textArea.value = generatedText;
             document.body.appendChild(textArea);
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            this.props.close();
         }
+
+        // Show "Copied!" feedback
+        this.state.copied = true;
+
+        // Close after brief delay
+        setTimeout(() => {
+            this.props.close();
+        }, 900);
     }
 }
 
