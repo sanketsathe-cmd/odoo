@@ -3,7 +3,7 @@
     'version': '1.02.5',
     'category': 'Supply Chain',
     'summary': 'This is summary...',
-    'description': 'This is description...',
+    'description': 'This module has code regarding receipts > detailed operation > default odoo import lots',
     'author': 'Divya Kelaskar',
     'application': True,
     'depends': ['base', 'stock', 'stock_account'],
